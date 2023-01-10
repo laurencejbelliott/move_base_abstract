@@ -8,7 +8,6 @@ project(move_base_abstract)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
-  gazebo
   rospy
   stage_ros
   std_msgs
@@ -106,7 +105,7 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES move_base_abstract
-#  CATKIN_DEPENDS gazebo rospy stage_ros std_msgs
+#  CATKIN_DEPENDS rospy stage_ros std_msgs
 #  DEPENDS system_lib
 )
 

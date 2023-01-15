@@ -5,16 +5,18 @@ import rospy
 import actionlib
 from move_base_msgs.msg import MoveBaseAction, MoveBaseActionGoal, MoveBaseActionFeedback,\
     MoveBaseActionResult
-from geometry_msgs.msg import Pose, PoseWithCovarianceStamped
+from geometry_msgs.msg import Pose, PoseStamped, PoseWithCovarianceStamped
 
-simulator = "stage_ros"  # 'gazebo' or 'stage_ros'
+simulator = "gazebo"  # 'gazebo' or 'stage_ros'
 
 if simulator == "gazebo":
     from gazebo_msgs.msg import ModelState
 
 # TODO:
-#  - Make this an actionserver, so it can fully replace move_base
+#  - Modify toponav code to set "simulation mode", which stops the node waiting for
+#     some move_base topics that will not be published by move_base_abstract
 #  - Parameterise top speed, simulator (gazebo / stage_ros), robot model name
+#  - Provide more information in move_base feedback and result
 
 top_speed = 0.5  # m/s - Robot's average speed
 namespace = rospy.get_namespace()
@@ -41,7 +43,7 @@ class MoveBaseAbstractActionServer(object):
 
     def execute_cb(self, goal):
         rospy.loginfo("Received goal: {}".format(goal))
-        goal_pose_cb(goal)
+        goal_pose_cb(goal.target_pose.pose)
 
         # # Define and publish feedback
         # self._feedback = MoveBaseActionFeedback()
@@ -68,11 +70,12 @@ def goal_pose_cb(msg):
         model_state = ModelState()
         model_state.model_name = namespace.strip("/")
         model_state.pose = goal_pose
+        rospy.loginfo("Model state pose msg type: {}".format(type(model_state.pose)))
     rospy.loginfo("Goal pose received: %s", goal_pose)
 
     # Calculate the distance to the goal
-    distance = sqrt(((goal_pose.target_pose.pose.position.x - ground_truth_pose.position.x)**2) +
-                    ((goal_pose.target_pose.pose.position.y - ground_truth_pose.position.y)**2))
+    distance = sqrt(((goal_pose.position.x - ground_truth_pose.position.x)**2) +
+                    ((goal_pose.position.y - ground_truth_pose.position.y)**2))
     time_to_goal = distance / top_speed
     rospy.loginfo("Distance to goal: %s", distance)
     rospy.loginfo("Robot will reach the goal in %s seconds", time_to_goal)
@@ -99,8 +102,14 @@ def move_base_goal_cb(msg):
     goal_pose_cb(goal_pose)
 
 
+def move_base_simple_goal_cb(msg):
+    goal_pose = msg.pose
+    goal_pose_cb(goal_pose)
+
+
 if __name__ == '__main__':
     # rospy.Subscriber(namespace+'move_base/goal', MoveBaseActionGoal, move_base_goal_cb)
+    rospy.Subscriber(namespace+'move_base_simple/goal', PoseStamped, move_base_simple_goal_cb)
     rospy.Subscriber(namespace+'amcl_pose', PoseWithCovarianceStamped, ground_truth_pose_cb)
     rospy.init_node('move_base_abstract_actionserver')
     server = MoveBaseAbstractActionServer()

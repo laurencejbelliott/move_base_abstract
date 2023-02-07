@@ -1,0 +1,16 @@
+<?xml version="1.0" ?>
+<launch>
+  
+  <arg name="robot_name" default="thorvald_001" />
+  <arg name="simulator" default="virtual_robots" />
+  <!-- Average speed in m/s-->
+  <arg name="avg_speed" default="0.5" />
+  <!-- Initial robot position -->
+  <arg name="robot_pos_x" default="0.0" />
+  <arg name="robot_pos_y" default="0.0" />
+
+  <group ns="$(arg robot_name)">
+    <!-- move_base_abstract node launched within the robot namespace -->
+    <node pkg="move_base_abstract" type="move_base_abstract_actionserver" name="move_base" output="screen" respawn="true" args="$(arg robot_name) $(arg simulator) $(arg avg_speed) $(arg robot_pos_x) $(arg robot_pos_y)" />
+  </group>
+</launch>

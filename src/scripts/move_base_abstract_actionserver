@@ -77,16 +77,7 @@ class MoveBaseAbstractActionServer(object):
 
     def execute_cb(self, goal):
         rospy.loginfo("Received goal: {}".format(goal))
-        goal_pose_cb(goal.target_pose.pose)
-
-        # # Define and publish feedback
-        # self._feedback = MoveBaseActionFeedback()
-        # self._feedback.header.stamp = rospy.Time.now()
-        # self._feedback.header.frame_id = "map"
-        # self._feedback.status.status = 1
-        # self._feedback.status.text = "Moving to goal"
-        # # self._feedback.feedback.base_position = ground_truth_pose
-        # self._as.publish_feedback(self._feedback)
+        self.goal_pose_cb(goal.target_pose.pose)
 
         # Define and publish result
         self._result = MoveBaseActionResult()
@@ -98,57 +89,77 @@ class MoveBaseAbstractActionServer(object):
         self._as.set_succeeded(self._result)
 
 
-def goal_pose_cb(msg):
-    goal_pose = msg
-    if simulator == "gazebo":
-        model_state = ModelState()
-        model_state.model_name = namespace.strip("/")
-        model_state.pose = goal_pose
-        rospy.loginfo("Model state pose msg type: {}".format(type(model_state.pose)))
-    rospy.loginfo("Goal pose received: %s", goal_pose)
+    def goal_pose_cb(self, msg):
+        goal_pose = msg
+        if simulator == "gazebo":
+            model_state = ModelState()
+            model_state.model_name = namespace.strip("/")
+            model_state.pose = goal_pose
+            rospy.loginfo("Model state pose msg type: {}".format(type(model_state.pose)))
+        rospy.loginfo("Goal pose received: %s", goal_pose)
 
-    # Calculate the distance to the goal
-    distance = sqrt(((goal_pose.position.x - ground_truth_pose.position.x)**2) +
-                    ((goal_pose.position.y - ground_truth_pose.position.y)**2))
-    time_to_goal = distance / avg_speed
-    rospy.loginfo("Distance to goal: %s", distance)
-    rospy.loginfo("Robot will reach the goal in %s seconds", time_to_goal)
-    rospy.sleep(time_to_goal)
+        # Calculate the distance to the goal
+        distance = sqrt(((goal_pose.position.x - ground_truth_pose.position.x)**2) +
+                        ((goal_pose.position.y - ground_truth_pose.position.y)**2))
+        time_to_goal = distance / avg_speed
+        rospy.loginfo("Distance to goal: %s", distance)
+        rospy.loginfo("Robot will reach the goal in %s seconds", time_to_goal)
+        time_taken_to_goal = 0.0
+        time_remaining_to_goal = time_to_goal
 
-    if simulator == "gazebo":
-        pose_pub.publish(model_state)
+        # Publish the goal pose, and cancel if preempted during travel to goal
+        while time_remaining_to_goal > 0.0:
+            rospy.loginfo("Time remaining to goal: %s", time_remaining_to_goal)
+            if time_remaining_to_goal < 0.5:
+                if self._as.is_preempt_requested():
+                    self._as.set_preempted()
+                    rospy.loginfo("Goal cancelled")
+                    return
+                rospy.sleep(time_remaining_to_goal)
+                time_remaining_to_goal = 0.0
+            else:
+                if self._as.is_preempt_requested():
+                    self._as.set_preempted()
+                    rospy.loginfo("Goal cancelled")
+                    return
+                rospy.sleep(0.5)
+                time_taken_to_goal += 0.5
+                time_remaining_to_goal = time_to_goal - time_taken_to_goal
 
-    elif simulator == "stage_ros":
-        offset_goal = copy.deepcopy(msg)
-        offset_goal.target_pose.pose.position.x = offset_goal.target_pose.pose.position.x - 162.0
-        offset_goal.target_pose.pose.position.y = offset_goal.target_pose.pose.position.y - 110.0
+        if simulator == "gazebo":
+            pose_pub.publish(model_state)
 
-        goal_pose = Pose()
-        goal_pose.position.x = offset_goal.target_pose.pose.position.x
-        goal_pose.position.y = offset_goal.target_pose.pose.position.y
-        goal_pose.orientation.w = 1.0
+        elif simulator == "stage_ros":
+            offset_goal = copy.deepcopy(msg)
+            offset_goal.target_pose.pose.position.x = offset_goal.target_pose.pose.position.x - 162.0
+            offset_goal.target_pose.pose.position.y = offset_goal.target_pose.pose.position.y - 110.0
 
-        pose_pub.publish(goal_pose)
+            goal_pose = Pose()
+            goal_pose.position.x = offset_goal.target_pose.pose.position.x
+            goal_pose.position.y = offset_goal.target_pose.pose.position.y
+            goal_pose.orientation.w = 1.0
 
-    elif simulator == "virtual_robots":
-        # Broadcast the goal pose as a transform between the robot base_link and the map
-        translation = (goal_pose.position.x, goal_pose.position.y, goal_pose.position.z)
-        rotation = (goal_pose.orientation.x, goal_pose.orientation.y, goal_pose.orientation.z, goal_pose.orientation.w)
-        tf_broadcaster.sendTransform(translation, rotation, rospy.Time.now(), namespace + "base_link", "map")
+            pose_pub.publish(goal_pose)
 
-        # Publish goal pose to RViz
-        rviz_pose_pub.publish(goal_pose)
-    rospy.loginfo("Goal pose published to " + simulator)
+        elif simulator == "virtual_robots":
+            # Broadcast the goal pose as a transform between the robot base_link and the map
+            translation = (goal_pose.position.x, goal_pose.position.y, goal_pose.position.z)
+            rotation = (goal_pose.orientation.x, goal_pose.orientation.y, goal_pose.orientation.z, goal_pose.orientation.w)
+            tf_broadcaster.sendTransform(translation, rotation, rospy.Time.now(), namespace + "base_link", "map")
+
+            # Publish goal pose to RViz
+            rviz_pose_pub.publish(goal_pose)
+        rospy.loginfo("Goal pose published to " + simulator)
 
 
-def move_base_goal_cb(msg):
-    goal_pose = msg.goal.target_pose.pose
-    goal_pose_cb(goal_pose)
+    def move_base_goal_cb(self, msg):
+        goal_pose = msg.goal.target_pose.pose
+        self.goal_pose_cb(goal_pose)
 
 
 def move_base_simple_goal_cb(msg):
     goal_pose = msg.pose
-    goal_pose_cb(goal_pose)
+    server.goal_pose_cb(goal_pose)
 
 
 if __name__ == '__main__':
@@ -160,6 +171,7 @@ if __name__ == '__main__':
         rospy.Subscriber(namespace+'amcl_pose', PoseWithCovarianceStamped, ground_truth_pose_cb)
     rospy.init_node('move_base_abstract_actionserver')
     server = MoveBaseAbstractActionServer()
+    
     rospy.loginfo("Started move_base_abstract_actionserver node with args:\n"\
                   "Robot name: {}\n" \
                   "Simulator: {}\n" \

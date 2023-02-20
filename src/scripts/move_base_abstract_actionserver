@@ -20,10 +20,11 @@ if simulator == "gazebo":
 avg_speed = float(argv[3])  # m/s
 
 # TODO:
-#  - Get initial position, then publish '/robot_pose' and send transform at start if simulator == "virtual_robots"
-#  - With simulator == "virtual_robots", get current position from /robot_pose topic
-#  - Parameterise top speed, simulator (gazebo / stage_ros), robot model name
-#  - Provide more information in move_base feedback and result
+#  - Add a probability that the robot will fail to reach the goal, and publish a result of 4 (aborted) if this happens.
+#  - Move robot partway along its path at each iteration of the movement loop, or at least place it halfway between nodes when using `virtual_robots`
+#     This will allow topological navigation to correctly detect the robot's "current edge".
+#  - Use the maximum speed for the type of edge to be traversed in the topological map, rather than average speed, when using `virtual_robots`.
+#  - Provide more information in move_base feedback and result.
 
 namespace = rospy.get_namespace()
 

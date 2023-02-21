@@ -138,6 +138,22 @@ class MoveBaseAbstractActionServer(object):
         time_taken_to_goal = 0.0
         time_remaining_to_goal = time_to_goal
 
+        # If simulator == "virtual_robots", set the robot's position as halfway between the current position and the goal.
+        #  This is to simulate the robot's presence on the edge between its current node and the goal node on the topological map
+        if self.simulator == "virtual_robots":
+            halfway_pose = Pose()
+            halfway_pose.position.x = (goal_pose.position.x + ground_truth_pose.position.x) / 2
+            halfway_pose.position.y = (goal_pose.position.y + ground_truth_pose.position.y) / 2
+            halfway_pose.position.z = 0
+            halfway_pose.orientation.w = 1
+            translation = (halfway_pose.position.x, halfway_pose.position.y, halfway_pose.position.z)
+            rotation = (halfway_pose.orientation.x, halfway_pose.orientation.y, halfway_pose.orientation.z, halfway_pose.orientation.w)
+            tf_broadcaster.sendTransform(translation, rotation, rospy.Time.now(), namespace + "base_link", "map")
+
+            # Publish halfway pose to RViz
+            rviz_pose_pub.publish(halfway_pose)
+            rospy.loginfo("Halfway pose and transform published for Virtual Robots simulator")
+
         # Publish the goal pose, and cancel if preempted during travel to goal
         while time_remaining_to_goal > 0.0:
             # rospy.loginfo("Time remaining to goal: %s", time_remaining_to_goal)

@@ -1,5 +1,6 @@
 #!/usr/bin/python
 import copy
+import random
 from sys import argv
 from math import sqrt
 import rospy
@@ -56,6 +57,10 @@ class MoveBaseAbstractActionServer(object):
         self.avg_speed = avg_speed
         self.robot_start_pos_x = float(argv[4])
         self.robot_start_pos_y = float(argv[5])
+        self.failure_probability = 0.01  # Probability that the robot will fail to reach the goal
+        self.retry_delay = 5  # Seconds to wait before retrying a failed goal
+        self.retry_count = 0
+        self.max_retry_count = 3
 
         # If simulator == "virtual_robots", set the robot's initial position
         if self.simulator == "virtual_robots":
@@ -78,16 +83,41 @@ class MoveBaseAbstractActionServer(object):
 
     def execute_cb(self, goal):
         rospy.loginfo("Received goal: {}".format(goal))
-        self.goal_pose_cb(goal.target_pose.pose)
 
-        # Define and publish result
-        self._result = MoveBaseActionResult()
-        self._result.header.stamp = rospy.Time.now()
-        self._result.header.frame_id = "map"
-        self._result.status.status = 3
-        self._result.status.text = "Goal reached"
-        # self._result.result.base_position = ground_truth_pose
-        self._as.set_succeeded(self._result)
+        # Random chance for movement to the goal to fail
+        if random.random() <= self.failure_probability:
+            if self.retry_count >= self.max_retry_count:
+                # Define and publish result
+                self._result = MoveBaseActionResult()
+                self._result.header.stamp = rospy.Time.now()
+                self._result.header.frame_id = "map"
+                self._result.status.status = 4
+                self._result.status.text = "Goal failed to be reached after {} of {} retries".format(self.retry_count, self.max_retry_count)
+                rospy.logerr("Goal failed to be reached after {} of {} retries".format(self.retry_count, self.max_retry_count))
+                rospy.logerr("Aborting goal")
+                self._as.set_aborted(self._result)
+                return
+            else:
+                self._result.status.text = "Goal failed to be reached after {} of {} retries".format(self.retry_count, self.max_retry_count)
+                rospy.logwarn("Goal failed to be reached after {} of {} retries".format(self.retry_count, self.max_retry_count))
+                rospy.logwarn("Retrying goal after {} second wait".format(self.retry_delay))
+                rospy.sleep(self.retry_delay)
+                self.retry_count += 1
+                self.execute_cb(goal)
+
+        else:
+            self.goal_pose_cb(goal.target_pose.pose)
+
+            # Define and publish result
+            self._result = MoveBaseActionResult()
+            self._result.header.stamp = rospy.Time.now()
+            self._result.header.frame_id = "map"
+            self._result.status.status = 3
+            self._result.status.text = "Goal reached"
+            # self._result.result.base_position = ground_truth_pose
+            self._as.set_succeeded(self._result)
+            self.retry_count = 0
+
 
 
     def goal_pose_cb(self, msg):
@@ -110,7 +140,7 @@ class MoveBaseAbstractActionServer(object):
 
         # Publish the goal pose, and cancel if preempted during travel to goal
         while time_remaining_to_goal > 0.0:
-            rospy.loginfo("Time remaining to goal: %s", time_remaining_to_goal)
+            # rospy.loginfo("Time remaining to goal: %s", time_remaining_to_goal)
             if time_remaining_to_goal < 0.5:
                 if self._as.is_preempt_requested():
                     self._as.set_preempted()
@@ -164,7 +194,6 @@ def move_base_simple_goal_cb(msg):
 
 
 if __name__ == '__main__':
-    # rospy.Subscriber(namespace+'move_base/goal', MoveBaseActionGoal, move_base_goal_cb)
     rospy.Subscriber(namespace+'move_base_simple/goal', PoseStamped, move_base_simple_goal_cb)
     if simulator == "virtual_robots":
         rospy.Subscriber(namespace+'robot_pose', Pose, ground_truth_pose_cb)

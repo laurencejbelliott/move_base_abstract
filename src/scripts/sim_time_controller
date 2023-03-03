@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 import rospy
 from std_msgs.msg import Float64
 from rosgraph_msgs.msg import Clock
@@ -10,21 +10,48 @@ class SimTimeController:
         self.clock_pub = rospy.Publisher('/clock', Clock, queue_size=1)
         self.time_factor_sub = rospy.Subscriber('/sim_time_factor', Float64, self.time_factor_callback, queue_size=1)
         self.sim_time_factor = 1.0
-        self.zero_time = time.time()
+        self.zero_real_time = time.time()
+        self.zero_sim_time = rospy.Time.now()
+        self.last_factor_change_real_time = self.zero_real_time
+        self.last_factor_change_sim_time = self.zero_sim_time
         self.clock = Clock()
         rospy.loginfo("sim_time_controller initialised with realtime factor: " + str(self.sim_time_factor))
 
     def time_factor_callback(self, data):
-        self.sim_time_factor = data.data
-        rospy.loginfo("sim_time_controller realtime factor changed to: " + str(self.sim_time_factor))
+        new_factor = data.data
+        rospy.loginfo("sim_time_controller realtime factor changed to: " + str(new_factor))
+
+        if new_factor == self.sim_time_factor:
+            # No change in time factor, nothing to do
+            return
+
+        # Reset the simulation time to the current real time
+        self.zero_real_time = time.time()
+        self.zero_sim_time = rospy.Time.now()
+
+        # Update the time factor and last factor change times
+        self.sim_time_factor = new_factor
+        self.last_factor_change_real_time = self.zero_real_time
+        self.last_factor_change_sim_time = self.zero_sim_time
 
     def run(self):
-        rate = 100 # 100Hz
         while not rospy.is_shutdown():
-            self.clock.clock = rospy.Time.from_sec(self.sim_time_factor*(time.time() - self.zero_time))
-            self.clock_pub.publish(self.clock)
+            current_real_time = time.time()
+            current_sim_time = self.zero_sim_time + rospy.Duration.from_sec(self.sim_time_factor*(current_real_time - self.zero_real_time))
 
-            time.sleep(1.0/rate)
+            # Ensure that the next simulated time is greater than or equal to the previous simulated time
+            if current_sim_time < self.clock.clock:
+                current_sim_time = self.clock.clock
+
+            clock_msg = Clock()
+            clock_msg.clock = current_sim_time
+            self.clock_pub.publish(clock_msg)
+            self.clock = clock_msg # store the current clock message for comparison in the next loop iteration
+
+            # Sleep for the appropriate amount of time based on the current simulated time factor
+            sleep_duration = (1.0/100)/self.sim_time_factor
+            time.sleep(max(0, sleep_duration - (time.time() - current_real_time)))
+
 
 if __name__ == '__main__':
     try:

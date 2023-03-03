@@ -9,7 +9,7 @@ from move_base_msgs.msg import MoveBaseAction, MoveBaseActionFeedback,\
     MoveBaseActionResult
 from geometry_msgs.msg import Pose, PoseStamped, PoseWithCovarianceStamped
 
-if len(argv) > 1:
+if len(argv) > 2 and (argv[2] == "stage_ros" or argv[2] == "gazebo"):
     simulator = argv[2]
 else:
     simulator = "stage_ros"  # 'gazebo', 'stage_ros'
@@ -17,7 +17,11 @@ else:
 if simulator == "gazebo":
     from gazebo_msgs.msg import ModelState
 
-avg_speed = float(argv[3])  # m/s
+if len(argv) > 3:
+    rospy.loginfo("Arguments received: " + str(argv))
+    avg_speed = float(argv[3])  # m/s
+else:
+    avg_speed = 0.5  # m/s
 
 # TODO:
 #  - Parameterise top speed, simulator (gazebo / stage_ros), robot model name
@@ -44,11 +48,20 @@ class MoveBaseAbstractActionServer(object):
     _result = MoveBaseActionResult()
 
     def __init__(self):
-        self.robot_name = argv[1]
         self.simulator = simulator
         self.avg_speed = avg_speed
-        self.robot_start_pos_x = float(argv[4])
-        self.robot_start_pos_y = float(argv[5])
+        if len(argv) > 1 and "node" not in argv[1]:
+            self.robot_name = argv[1]
+        else:
+            self.robot_name = rospy.get_namespace().strip("/")
+        if len(argv) > 4:
+            self.robot_start_pos_x = float(argv[4])
+        else:
+            self.robot_start_pos_x = 0.0
+        if len(argv) > 5:
+            self.robot_start_pos_y = float(argv[5])
+        else:
+            self.robot_start_pos_y = 0.0
 
         self._as = actionlib.SimpleActionServer("move_base", MoveBaseAction, self.execute_cb, False)
         self._as.start()
@@ -87,7 +100,7 @@ class MoveBaseAbstractActionServer(object):
 
         # Publish the goal pose, and cancel if preempted during travel to goal
         while time_remaining_to_goal > 0.0:
-            rospy.loginfo("Time remaining to goal: %s", time_remaining_to_goal)
+            rospy.loginfo(self.robot_name+": Time remaining to goal: %s", time_remaining_to_goal)
             if time_remaining_to_goal < 0.5:
                 if self._as.is_preempt_requested():
                     self._as.set_preempted()
@@ -109,16 +122,16 @@ class MoveBaseAbstractActionServer(object):
 
         elif simulator == "stage_ros":
             offset_goal = copy.deepcopy(msg)
-            offset_goal.target_pose.pose.position.x = offset_goal.target_pose.pose.position.x - 162.0
-            offset_goal.target_pose.pose.position.y = offset_goal.target_pose.pose.position.y - 110.0
+            offset_goal.position.x = offset_goal.position.x - 162.0
+            offset_goal.position.y = offset_goal.position.y - 110.0
 
             goal_pose = Pose()
-            goal_pose.position.x = offset_goal.target_pose.pose.position.x
-            goal_pose.position.y = offset_goal.target_pose.pose.position.y
+            goal_pose.position.x = offset_goal.position.x
+            goal_pose.position.y = offset_goal.position.y
             goal_pose.orientation.w = 1.0
 
             pose_pub.publish(goal_pose)
-            
+
         rospy.loginfo("Goal pose published to " + simulator)
 
 
@@ -147,6 +160,6 @@ if __name__ == '__main__':
                   "Simulator: {}\n" \
                   "Average speed: {}\n" \
                   "Robot start position x: {}\n" \
-                  "Robot start position y: {}\n".format(argv[1], argv[2], argv[3], argv[4], argv[5])
+                  "Robot start position y: {}\n".format(server.robot_name, server.simulator, server.avg_speed, server.robot_start_pos_x, server.robot_start_pos_y)
     )
     rospy.spin()

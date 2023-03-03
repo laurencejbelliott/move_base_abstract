@@ -12,7 +12,7 @@ from geometry_msgs.msg import Pose, PoseStamped, PoseWithCovarianceStamped
 if len(argv) > 1:
     simulator = argv[2]
 else:
-    simulator = "stage_ros"  # 'gazebo', 'stage_ros', or 'virtual_robots' (for Robot Highways)
+    simulator = "stage_ros"  # 'gazebo', 'stage_ros'
 
 if simulator == "gazebo":
     from gazebo_msgs.msg import ModelState
@@ -20,10 +20,7 @@ if simulator == "gazebo":
 avg_speed = float(argv[3])  # m/s
 
 # TODO:
-#  - Get initial position, then publish '/robot_pose' and send transform at start if simulator == "virtual_robots"
-#  - With simulator == "virtual_robots", get current position from /robot_pose topic
 #  - Parameterise top speed, simulator (gazebo / stage_ros), robot model name
-#  - Provide more information in move_base feedback and result
 
 namespace = rospy.get_namespace()
 
@@ -39,10 +36,7 @@ ground_truth_pose = Pose()
 
 def ground_truth_pose_cb(msg):
     global ground_truth_pose
-    if simulator == "virtual_robots":
-        ground_truth_pose = msg
-    else:
-        ground_truth_pose = msg.pose.pose
+    ground_truth_pose = msg.pose.pose
 
 
 class MoveBaseAbstractActionServer(object):
@@ -55,22 +49,6 @@ class MoveBaseAbstractActionServer(object):
         self.avg_speed = avg_speed
         self.robot_start_pos_x = float(argv[4])
         self.robot_start_pos_y = float(argv[5])
-
-        # If simulator == "virtual_robots", set the robot's initial position
-        if self.simulator == "virtual_robots":
-            # Broadcast the initial pose as a transform between the robot base_link and the map
-            goal_pose = Pose()
-            goal_pose.position.x = self.robot_start_pos_x
-            goal_pose.position.y = self.robot_start_pos_y
-            goal_pose.position.z = 0
-            goal_pose.orientation.w = 1
-            translation = (goal_pose.position.x, goal_pose.position.y, goal_pose.position.z)
-            rotation = (goal_pose.orientation.x, goal_pose.orientation.y, goal_pose.orientation.z, goal_pose.orientation.w)
-            tf_broadcaster.sendTransform(translation, rotation, rospy.Time.now(), namespace + "base_link", "map")
-
-            # Publish goal pose to RViz
-            rviz_pose_pub.publish(goal_pose)
-            rospy.loginfo("Initial pose and transform published for Virtual Robots simulator")
 
         self._as = actionlib.SimpleActionServer("move_base", MoveBaseAction, self.execute_cb, False)
         self._as.start()
@@ -140,15 +118,7 @@ class MoveBaseAbstractActionServer(object):
             goal_pose.orientation.w = 1.0
 
             pose_pub.publish(goal_pose)
-
-        elif simulator == "virtual_robots":
-            # Broadcast the goal pose as a transform between the robot base_link and the map
-            translation = (goal_pose.position.x, goal_pose.position.y, goal_pose.position.z)
-            rotation = (goal_pose.orientation.x, goal_pose.orientation.y, goal_pose.orientation.z, goal_pose.orientation.w)
-            tf_broadcaster.sendTransform(translation, rotation, rospy.Time.now(), namespace + "base_link", "map")
-
-            # Publish goal pose to RViz
-            rviz_pose_pub.publish(goal_pose)
+            
         rospy.loginfo("Goal pose published to " + simulator)
 
 

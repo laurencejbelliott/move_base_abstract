@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 import copy
-from sys import argv
+import sys
 from math import sqrt
 import rospy
 import actionlib
@@ -8,6 +8,9 @@ import tf
 from move_base_msgs.msg import MoveBaseAction, MoveBaseActionFeedback,\
     MoveBaseActionResult
 from geometry_msgs.msg import Pose, PoseStamped, PoseWithCovarianceStamped
+from nav_msgs.msg import OccupancyGrid
+
+argv = rospy.myargv(argv=sys.argv)
 
 if len(argv) > 2 and (argv[2] == "stage_ros" or argv[2] == "gazebo"):
     simulator = argv[2]
@@ -50,6 +53,7 @@ class MoveBaseAbstractActionServer(object):
     def __init__(self):
         self.simulator = simulator
         self.avg_speed = avg_speed
+
         if len(argv) > 1 and "node" not in argv[1]:
             self.robot_name = argv[1]
         else:
@@ -62,9 +66,20 @@ class MoveBaseAbstractActionServer(object):
             self.robot_start_pos_y = float(argv[5])
         else:
             self.robot_start_pos_y = 0.0
+        if len(argv) > 6:
+            self.env_crop_factor = int(argv[6])
+        else:
+            self.env_crop_factor = 1
 
         self._as = actionlib.SimpleActionServer("move_base", MoveBaseAction, self.execute_cb, False)
         self._as.start()
+
+        map = rospy.wait_for_message("/map", OccupancyGrid)
+        self.env_width = map.info.width * map.info.resolution
+        self.env_height = map.info.height * map.info.resolution
+
+        self.cropped_env_width = self.env_width / self.env_crop_factor
+        self.cropped_env_height = self.env_height / self.env_crop_factor
 
     def execute_cb(self, goal):
         rospy.loginfo("Received goal: {}".format(goal))
@@ -122,8 +137,10 @@ class MoveBaseAbstractActionServer(object):
 
         elif simulator == "stage_ros":
             offset_goal = copy.deepcopy(msg)
-            offset_goal.position.x = offset_goal.position.x - 162.0
-            offset_goal.position.y = offset_goal.position.y - 110.0
+
+            # Convert coordinates from ROS to stage format
+            offset_goal.position.x = offset_goal.position.x - self.cropped_env_width / 2.0
+            offset_goal.position.y = offset_goal.position.y - self.cropped_env_height / 2.0
 
             goal_pose = Pose()
             goal_pose.position.x = offset_goal.position.x

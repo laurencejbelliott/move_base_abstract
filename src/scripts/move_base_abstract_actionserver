@@ -1,16 +1,14 @@
 #!/usr/bin/python3
 import copy
-import sys
+from sys import argv
 from math import sqrt
 import rospy
 import actionlib
 import tf
+import numpy as np
 from move_base_msgs.msg import MoveBaseAction, MoveBaseActionFeedback,\
     MoveBaseActionResult
 from geometry_msgs.msg import Pose, PoseStamped, PoseWithCovarianceStamped
-from nav_msgs.msg import OccupancyGrid
-
-argv = rospy.myargv(argv=sys.argv)
 
 if len(argv) > 2 and (argv[2] == "stage_ros" or argv[2] == "gazebo"):
     simulator = argv[2]
@@ -26,8 +24,6 @@ if len(argv) > 3:
 else:
     avg_speed = 0.5  # m/s
 
-# TODO:
-#  - Parameterise top speed, simulator (gazebo / stage_ros), robot model name
 
 namespace = rospy.get_namespace()
 
@@ -53,7 +49,6 @@ class MoveBaseAbstractActionServer(object):
     def __init__(self):
         self.simulator = simulator
         self.avg_speed = avg_speed
-
         if len(argv) > 1 and "node" not in argv[1]:
             self.robot_name = argv[1]
         else:
@@ -66,20 +61,9 @@ class MoveBaseAbstractActionServer(object):
             self.robot_start_pos_y = float(argv[5])
         else:
             self.robot_start_pos_y = 0.0
-        if len(argv) > 6:
-            self.env_crop_factor = int(argv[6])
-        else:
-            self.env_crop_factor = 1
 
         self._as = actionlib.SimpleActionServer("move_base", MoveBaseAction, self.execute_cb, False)
         self._as.start()
-
-        map = rospy.wait_for_message("/map", OccupancyGrid)
-        self.env_width = map.info.width * map.info.resolution
-        self.env_height = map.info.height * map.info.resolution
-
-        self.cropped_env_width = self.env_width / self.env_crop_factor
-        self.cropped_env_height = self.env_height / self.env_crop_factor
 
     def execute_cb(self, goal):
         rospy.loginfo("Received goal: {}".format(goal))
@@ -113,6 +97,11 @@ class MoveBaseAbstractActionServer(object):
         time_taken_to_goal = 0.0
         time_remaining_to_goal = time_to_goal
 
+        start_pose = copy.deepcopy(ground_truth_pose)
+
+        interpolated_x = np.linspace(start_pose.position.x, goal_pose.position.x, 100)
+        interpolated_y = np.linspace(start_pose.position.y, goal_pose.position.y, 100)
+
         # Publish the goal pose, and cancel if preempted during travel to goal
         while time_remaining_to_goal > 0.0:
             rospy.loginfo(self.robot_name+": Time remaining to goal: %s", time_remaining_to_goal)
@@ -132,15 +121,40 @@ class MoveBaseAbstractActionServer(object):
                 time_taken_to_goal += 0.5
                 time_remaining_to_goal = time_to_goal - time_taken_to_goal
 
+            # Update the robot's position in the simulator using linear interpolation (np.linspace)
+            goal_completion_percentage = (time_taken_to_goal / time_to_goal) * 100
+            
+            robot_pose_update = Pose()
+            robot_pose_update.position.x = interpolated_x[int(goal_completion_percentage)]
+            robot_pose_update.position.y = interpolated_y[int(goal_completion_percentage)]
+            robot_pose_update.orientation.w = 1.0
+
+            # Publish the robot's position update in the simulator
+            if simulator == "gazebo":
+                model_state.pose = robot_pose_update
+                pose_pub.publish(model_state)
+                rospy.loginfo("Robot pose updated in Gazebo")
+            elif simulator == "stage_ros":
+                offset_pose = copy.deepcopy(robot_pose_update)
+                offset_pose.position.x = offset_pose.position.x - 162.0
+                offset_pose.position.y = offset_pose.position.y - 110.0
+
+                goal_pose = Pose()
+                goal_pose.position.x = offset_pose.position.x
+                goal_pose.position.y = offset_pose.position.y
+                goal_pose.orientation.w = 1.0
+
+                pose_pub.publish(goal_pose)
+                rospy.loginfo("Robot pose updated in Stage")
+
+
         if simulator == "gazebo":
             pose_pub.publish(model_state)
 
         elif simulator == "stage_ros":
             offset_goal = copy.deepcopy(msg)
-
-            # Convert coordinates from ROS to stage format
-            offset_goal.position.x = offset_goal.position.x - self.cropped_env_width / 2.0
-            offset_goal.position.y = offset_goal.position.y - self.cropped_env_height / 2.0
+            offset_goal.position.x = offset_goal.position.x - 162.0
+            offset_goal.position.y = offset_goal.position.y - 110.0
 
             goal_pose = Pose()
             goal_pose.position.x = offset_goal.position.x

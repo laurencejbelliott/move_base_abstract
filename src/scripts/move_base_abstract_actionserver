@@ -125,8 +125,8 @@ class MoveBaseAbstractActionServer(object):
             goal_completion_percentage = (time_taken_to_goal / time_to_goal) * 100
             
             robot_pose_update = Pose()
-            robot_pose_update.position.x = interpolated_x[int(goal_completion_percentage)]
-            robot_pose_update.position.y = interpolated_y[int(goal_completion_percentage)]
+            robot_pose_update.position.x = interpolated_x[int(goal_completion_percentage)-1]
+            robot_pose_update.position.y = interpolated_y[int(goal_completion_percentage)-1]
             robot_pose_update.orientation.w = 1.0
 
             # Publish the robot's position update in the simulator

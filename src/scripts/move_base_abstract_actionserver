@@ -19,11 +19,16 @@ if simulator == "gazebo":
     from gazebo_msgs.msg import ModelState
 
 if len(argv) > 3:
-    rospy.loginfo("Arguments received: " + str(argv))
     avg_speed = float(argv[3])  # m/s
 else:
     avg_speed = 0.5  # m/s
 
+if len(argv) > 4:
+    pose_update_freq = float(argv[4]) # Hz
+else:
+    pose_update_freq = 0.5 # Hz    
+
+rospy.loginfo("Args received: " + str(argv))
 
 namespace = rospy.get_namespace()
 
@@ -49,6 +54,9 @@ class MoveBaseAbstractActionServer(object):
     def __init__(self):
         self.simulator = simulator
         self.avg_speed = avg_speed
+        self.pose_update_freq = pose_update_freq
+        self.pose_update_interval = 1.0 / self.pose_update_freq
+
         if len(argv) > 1 and "node" not in argv[1]:
             self.robot_name = argv[1]
         else:
@@ -101,11 +109,11 @@ class MoveBaseAbstractActionServer(object):
 
         interpolated_x = np.linspace(start_pose.position.x, goal_pose.position.x, 100)
         interpolated_y = np.linspace(start_pose.position.y, goal_pose.position.y, 100)
-
+        
         # Publish the goal pose, and cancel if preempted during travel to goal
         while time_remaining_to_goal > 0.0:
-            rospy.loginfo(self.robot_name+": Time remaining to goal: %s", time_remaining_to_goal)
-            if time_remaining_to_goal < 0.5:
+            # rospy.loginfo(self.robot_name+": Time remaining to goal: %s", time_remaining_to_goal)
+            if time_remaining_to_goal < self.pose_update_interval:
                 if self._as.is_preempt_requested():
                     self._as.set_preempted()
                     rospy.loginfo("Goal cancelled")
@@ -117,8 +125,8 @@ class MoveBaseAbstractActionServer(object):
                     self._as.set_preempted()
                     rospy.loginfo("Goal cancelled")
                     return
-                rospy.sleep(0.5)
-                time_taken_to_goal += 0.5
+                rospy.sleep(self.pose_update_interval)
+                time_taken_to_goal += self.pose_update_interval
                 time_remaining_to_goal = time_to_goal - time_taken_to_goal
 
             # Update the robot's position in the simulator using linear interpolation (np.linspace)
@@ -133,7 +141,7 @@ class MoveBaseAbstractActionServer(object):
             if simulator == "gazebo":
                 model_state.pose = robot_pose_update
                 pose_pub.publish(model_state)
-                rospy.loginfo("Robot pose updated in Gazebo")
+                # rospy.loginfo("Robot pose updated in Gazebo")
             elif simulator == "stage_ros":
                 offset_pose = copy.deepcopy(robot_pose_update)
                 offset_pose.position.x = offset_pose.position.x - 162.0
@@ -145,7 +153,7 @@ class MoveBaseAbstractActionServer(object):
                 goal_pose.orientation.w = 1.0
 
                 pose_pub.publish(goal_pose)
-                rospy.loginfo("Robot pose updated in Stage")
+                # rospy.loginfo("Robot pose updated in Stage")
 
 
         if simulator == "gazebo":
@@ -191,6 +199,8 @@ if __name__ == '__main__':
                   "Simulator: {}\n" \
                   "Average speed: {}\n" \
                   "Robot start position x: {}\n" \
-                  "Robot start position y: {}\n".format(server.robot_name, server.simulator, server.avg_speed, server.robot_start_pos_x, server.robot_start_pos_y)
+                  "Robot start position y: {}\n".format(server.robot_name, server.simulator, server.avg_speed, server.robot_start_pos_x, server.robot_start_pos_y) + \
+                  "Pose update frequency: {} Hz\n".format(server.pose_update_freq) + \
+                  "Pose update interval: {} seconds\n".format(server.pose_update_interval) \
     )
     rospy.spin()

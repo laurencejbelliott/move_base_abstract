@@ -23,8 +23,9 @@ if len(argv) > 3:
 else:
     avg_speed = 0.5  # m/s
 
-if len(argv) > 4:
-    pose_update_freq = float(argv[4]) # Hz
+if len(argv) > 6:
+    pose_update_freq = float(argv[6]) # Hz
+    print("Pose update freq: " + str(pose_update_freq))
 else:
     pose_update_freq = 0.5 # Hz    
 
@@ -55,7 +56,10 @@ class MoveBaseAbstractActionServer(object):
         self.simulator = simulator
         self.avg_speed = avg_speed
         self.pose_update_freq = pose_update_freq
-        self.pose_update_interval = 1.0 / self.pose_update_freq
+        if self.pose_update_freq > 0.0:
+            self.pose_update_interval = 1.0 / self.pose_update_freq
+        else:
+            self.pose_update_interval = 0.0
 
         if len(argv) > 1 and "node" not in argv[1]:
             self.robot_name = argv[1]
@@ -105,7 +109,11 @@ class MoveBaseAbstractActionServer(object):
         time_taken_to_goal = 0.0
         time_remaining_to_goal = time_to_goal
 
-        start_pose = copy.deepcopy(ground_truth_pose)
+        if self.pose_update_freq > 0.0:
+            start_pose = copy.deepcopy(ground_truth_pose)
+        else:
+            robot_pose_update = goal_pose
+            start_pose = robot_pose_update
 
         interpolated_x = np.linspace(start_pose.position.x, goal_pose.position.x, 100)
         interpolated_y = np.linspace(start_pose.position.y, goal_pose.position.y, 100)
@@ -113,7 +121,7 @@ class MoveBaseAbstractActionServer(object):
         # Publish the goal pose, and cancel if preempted during travel to goal
         while time_remaining_to_goal > 0.0:
             # rospy.loginfo(self.robot_name+": Time remaining to goal: %s", time_remaining_to_goal)
-            if time_remaining_to_goal < self.pose_update_interval:
+            if time_remaining_to_goal <= self.pose_update_interval:
                 if self._as.is_preempt_requested():
                     self._as.set_preempted()
                     rospy.loginfo("Goal cancelled")
@@ -125,17 +133,22 @@ class MoveBaseAbstractActionServer(object):
                     self._as.set_preempted()
                     rospy.loginfo("Goal cancelled")
                     return
-                rospy.sleep(self.pose_update_interval)
-                time_taken_to_goal += self.pose_update_interval
+                if self.pose_update_freq == 0.0:
+                    rospy.sleep(1)
+                    time_taken_to_goal += 1
+                else:
+                    rospy.sleep(self.pose_update_interval)
+                    time_taken_to_goal += self.pose_update_interval
                 time_remaining_to_goal = time_to_goal - time_taken_to_goal
 
             # Update the robot's position in the simulator using linear interpolation (np.linspace)
-            goal_completion_percentage = (time_taken_to_goal / time_to_goal) * 100
-            
-            robot_pose_update = Pose()
-            robot_pose_update.position.x = interpolated_x[int(goal_completion_percentage)-1]
-            robot_pose_update.position.y = interpolated_y[int(goal_completion_percentage)-1]
-            robot_pose_update.orientation.w = 1.0
+            if self.pose_update_freq > 0.0:
+                goal_completion_percentage = (time_taken_to_goal / time_to_goal) * 100
+                
+                robot_pose_update = Pose()
+                robot_pose_update.position.x = interpolated_x[int(goal_completion_percentage)-1]
+                robot_pose_update.position.y = interpolated_y[int(goal_completion_percentage)-1]
+                robot_pose_update.orientation.w = 1.0
 
             # Publish the robot's position update in the simulator
             if simulator == "gazebo":

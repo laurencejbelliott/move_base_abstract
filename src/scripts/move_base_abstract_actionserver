@@ -25,9 +25,11 @@ else:
 
 if len(argv) > 6:
     pose_update_freq = float(argv[6]) # Hz
-    print("Pose update freq: " + str(pose_update_freq))
 else:
     pose_update_freq = 0.5 # Hz    
+
+if len(argv) > 7:
+    acceleration = float(argv[7]) # m/s^2
 
 rospy.loginfo("Args received: " + str(argv))
 
@@ -56,6 +58,8 @@ class MoveBaseAbstractActionServer(object):
         self.simulator = simulator
         self.avg_speed = avg_speed
         self.pose_update_freq = pose_update_freq
+        self.acceleration = acceleration
+
         if self.pose_update_freq > 0.0:
             self.pose_update_interval = 1.0 / self.pose_update_freq
         else:
@@ -187,6 +191,24 @@ class MoveBaseAbstractActionServer(object):
         rospy.loginfo("Goal pose published to " + simulator)
 
 
+        if simulator == "gazebo":
+            pose_pub.publish(model_state)
+
+        elif simulator == "stage_ros":
+            offset_goal = copy.deepcopy(msg)
+            offset_goal.position.x = offset_goal.position.x - 162.0
+            offset_goal.position.y = offset_goal.position.y - 110.0
+
+            goal_pose = Pose()
+            goal_pose.position.x = offset_goal.position.x
+            goal_pose.position.y = offset_goal.position.y
+            goal_pose.orientation.w = 1.0
+
+            pose_pub.publish(goal_pose)
+
+        rospy.loginfo("Goal pose published to " + simulator)
+
+
     def move_base_goal_cb(self, msg):
         goal_pose = msg.goal.target_pose.pose
         self.goal_pose_cb(goal_pose)
@@ -214,6 +236,7 @@ if __name__ == '__main__':
                   "Robot start position x: {}\n" \
                   "Robot start position y: {}\n".format(server.robot_name, server.simulator, server.avg_speed, server.robot_start_pos_x, server.robot_start_pos_y) + \
                   "Pose update frequency: {} Hz\n".format(server.pose_update_freq) + \
-                  "Pose update interval: {} seconds\n".format(server.pose_update_interval) \
+                  "Pose update interval: {} seconds\n".format(server.pose_update_interval) +\
+                  "Accleration: {} m/s^2\n".format(server.acceleration)
     )
     rospy.spin()

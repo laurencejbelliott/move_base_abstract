@@ -1,14 +1,15 @@
 #!/usr/bin/python3
 import copy
 from sys import argv
-from math import sqrt
+from math import sqrt, atan2, cos, sin
 import rospy
 import actionlib
 import tf
 import numpy as np
 from move_base_msgs.msg import MoveBaseAction, MoveBaseActionFeedback,\
     MoveBaseActionResult
-from geometry_msgs.msg import Pose, PoseStamped, PoseWithCovarianceStamped
+from geometry_msgs.msg import Pose, PoseStamped, PoseWithCovarianceStamped, Quaternion
+from tf.transformations import quaternion_from_euler, euler_from_quaternion
 
 if len(argv) > 2 and (argv[2] == "stage_ros" or argv[2] == "gazebo"):
     simulator = argv[2]
@@ -19,9 +20,9 @@ if simulator == "gazebo":
     from gazebo_msgs.msg import ModelState
 
 if len(argv) > 3:
-    avg_speed = float(argv[3])  # m/s
+    max_speed = float(argv[3])  # m/s
 else:
-    avg_speed = 0.5  # m/s
+    max_speed = 0.5  # m/s
 
 if len(argv) > 6:
     pose_update_freq = float(argv[6]) # Hz
@@ -56,7 +57,7 @@ class MoveBaseAbstractActionServer(object):
 
     def __init__(self):
         self.simulator = simulator
-        self.avg_speed = avg_speed
+        self.max_speed = max_speed
         self.pose_update_freq = pose_update_freq
         self.acceleration = acceleration
 
@@ -107,7 +108,13 @@ class MoveBaseAbstractActionServer(object):
         # Calculate the distance to the goal
         distance = sqrt(((goal_pose.position.x - ground_truth_pose.position.x)**2) +
                         ((goal_pose.position.y - ground_truth_pose.position.y)**2))
-        time_to_goal = distance / avg_speed
+        
+        # time_to_goal = distance / max_speed # Without acceleration and initial velocity of 0
+
+        # Time to travel to goal with acceleration and initial velocity of 0
+        # t = d/v + v/(2a)
+        time_to_goal = distance / max_speed + max_speed / (2 * acceleration)
+
         rospy.loginfo("Distance to goal: %s", distance)
         rospy.loginfo("Robot will reach the goal in %s seconds", time_to_goal)
         time_taken_to_goal = 0.0
@@ -119,8 +126,12 @@ class MoveBaseAbstractActionServer(object):
             robot_pose_update = goal_pose
             start_pose = robot_pose_update
 
-        interpolated_x = np.linspace(start_pose.position.x, goal_pose.position.x, 100)
-        interpolated_y = np.linspace(start_pose.position.y, goal_pose.position.y, 100)
+        # Calculate start pose orientation as the angle between the robot's current position and the goal, with the y-axis as the reference
+        start_pose.orientation = Quaternion(*quaternion_from_euler(0, 0, atan2(goal_pose.position.y - start_pose.position.y, goal_pose.position.x - start_pose.position.x)))
+        start_pose_oreintation_euler = euler_from_quaternion([start_pose.orientation.x, start_pose.orientation.y, start_pose.orientation.z, start_pose.orientation.w])
+
+        # interpolated_x = np.linspace(start_pose.position.x, goal_pose.position.x, 100)
+        # interpolated_y = np.linspace(start_pose.position.y, goal_pose.position.y, 100)
         
         # Publish the goal pose, and cancel if preempted during travel to goal
         while time_remaining_to_goal > 0.0:
@@ -145,14 +156,18 @@ class MoveBaseAbstractActionServer(object):
                     time_taken_to_goal += self.pose_update_interval
                 time_remaining_to_goal = time_to_goal - time_taken_to_goal
 
-            # Update the robot's position in the simulator using linear interpolation (np.linspace)
+            # Update the robot's position in the simulator by calculating the distance travelled at time_taken_to_goal and adding it to the start_pose
             if self.pose_update_freq > 0.0:
                 goal_completion_percentage = (time_taken_to_goal / time_to_goal) * 100
-                
+
+                # Calculate the distance travelled at time_taken_to_goal
+                # d = tv - v^2/(2a)
+                distance_travelled = (time_taken_to_goal* max_speed) - (max_speed**2 / (2 * acceleration))
+
                 robot_pose_update = Pose()
-                robot_pose_update.position.x = interpolated_x[int(goal_completion_percentage)-1]
-                robot_pose_update.position.y = interpolated_y[int(goal_completion_percentage)-1]
-                robot_pose_update.orientation.w = 1.0
+                robot_pose_update.position.x = start_pose.position.x + distance_travelled * cos(start_pose_oreintation_euler[2])
+                robot_pose_update.position.y = start_pose.position.y + distance_travelled * sin(start_pose_oreintation_euler[2])
+                robot_pose_update.orientation = start_pose.orientation
 
             # Publish the robot's position update in the simulator
             if simulator == "gazebo":
@@ -234,7 +249,7 @@ if __name__ == '__main__':
                   "Simulator: {}\n" \
                   "Average speed: {}\n" \
                   "Robot start position x: {}\n" \
-                  "Robot start position y: {}\n".format(server.robot_name, server.simulator, server.avg_speed, server.robot_start_pos_x, server.robot_start_pos_y) + \
+                  "Robot start position y: {}\n".format(server.robot_name, server.simulator, server.max_speed, server.robot_start_pos_x, server.robot_start_pos_y) + \
                   "Pose update frequency: {} Hz\n".format(server.pose_update_freq) + \
                   "Pose update interval: {} seconds\n".format(server.pose_update_interval) +\
                   "Accleration: {} m/s^2\n".format(server.acceleration)

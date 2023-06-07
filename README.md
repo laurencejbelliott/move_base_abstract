@@ -29,10 +29,9 @@ This node must be running, instead of running any move_base nodes, and can be na
 ## Optional Arguments for move_base_abstract_actionserver
 | Index | Name | Description | Data Type | Default Value |
 |---|---|---|---|---|
-| 1 | robot_name | Name of robot. | string | None |
+| 1 | robot_name | Name of robot. | string | None, or the namespace of the node if run within a namespace |
 | 2 | simulator | Name of simulator (either 'stage_ros' or 'gazebo'). | string | 'stage_ros' |
 | 3 | max_speed | Maximum speed of robot (must be > 0). | float | 0.5 |
 | 4 | start_pos_x | Starting x-position of robot. | float | 0.0 |
 | 5 | start_pos_y | Starting y-position of robot. | float | 0.0 |
 | 6 | pose_update_freq | Frequency at which robot's pose is published / broadcast. | float | 0.5 |
-| 7 | acceleration | Acceleration of robot (0 = constant speed). | float | 0.0 | 

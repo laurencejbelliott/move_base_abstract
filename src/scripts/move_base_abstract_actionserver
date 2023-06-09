@@ -119,7 +119,10 @@ class MoveBaseAbstractActionServer(object):
         if distance == 0.0:
             time_to_goal = 0.0
         else:
-            time_to_goal = distance / max_speed + max_speed / (2 * acceleration)
+            if acceleration == 0.0:
+                time_to_goal = distance / max_speed
+            else:
+                time_to_goal = distance / max_speed + max_speed / (2 * acceleration)
 
         # Print variables for debugging
         # Distance
@@ -176,7 +179,10 @@ class MoveBaseAbstractActionServer(object):
 
                 # Calculate the distance travelled at time_taken_to_goal
                 # d = tv - v^2/(2a)
-                distance_travelled = (time_taken_to_goal* max_speed) - (max_speed**2 / (2 * acceleration))
+                if acceleration == 0.0:
+                    distance_travelled = time_taken_to_goal * max_speed
+                else:
+                    distance_travelled = (time_taken_to_goal* max_speed) - (max_speed**2 / (2 * acceleration))
                 # rospy.loginfo(self.robot_name + ": Distance travelled: %s", distance_travelled)
 
                 robot_pose_update = Pose()

@@ -33,7 +33,28 @@ When running a move_base_abstract_actionserver node, you may pass the following 
 |---|---|---|---|---|
 | 1 | robot_name | Name of robot. | string | None, or the namespace of the node if run within a namespace |
 | 2 | simulator | Name of simulator (either 'stage_ros' or 'gazebo'). | string | 'stage_ros' |
-| 3 | max_speed | Maximum speed of robot (must be > 0). | float | 0.5 |
+| 3 | max_speed | Maximum speed (m/s) of robot (must be > 0). | float | 0.5 |
 | 4 | start_pos_x | Starting x-position of robot. | float | 0.0 |
 | 5 | start_pos_y | Starting y-position of robot. | float | 0.0 |
-| 6 | pose_update_freq | Frequency at which robot's pose is published. | float | 0.5 |
+| 6 | pose_update_freq | Frequency (Hz) at which robot's pose is published. | float | 0.5 |
+| 7 | acceleration | The accleration (m/s^2) of the robot (until its speed reaches max_speed). 0 = constant max. speed. | float | 0.0 |
+
+E.g.
+
+To start move_base_abstract_actionserver with
+* robot_name: "robot_0"
+* simulator: "stage_ros"
+* max_speed: 2.0
+* start_pos_x: 0.0
+* start_pos_y: 0.0
+* pose_update_freq: 0.1
+* accleration: 0.1
+
+In CLI:
+
+`rosrun move_base_abstract_actionserver "robot_0" "stage_ros" 2.0 0.0 0.0 0.1 0.1`
+
+In roslaunch XML:
+
+`<node pkg="move_base_abstract" type="move_base_abstract_actionserver" respawn="false" name="move_base_node" output="screen"
+    args='"robot_0" "stage_ros" 2.0 0.0 0.0 0.1 0.1'/>`

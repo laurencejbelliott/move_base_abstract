@@ -31,6 +31,8 @@ else:
 
 if len(argv) > 7:
     acceleration = float(argv[7]) # m/s^2
+else:
+    acceleration = 0.0 # Constant velocity = max_speed
 
 rospy.loginfo("Args received: " + str(argv))
 

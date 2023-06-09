@@ -111,9 +111,21 @@ class MoveBaseAbstractActionServer(object):
         
         # time_to_goal = distance / max_speed # Without acceleration and initial velocity of 0
 
-        # Time to travel to goal with acceleration and initial velocity of 0
+        # Time to travel to goal with constant acceleration, and initial velocity of 0, with accleration = 0 when v = max_speed
         # t = d/v + v/(2a)
-        time_to_goal = distance / max_speed + max_speed / (2 * acceleration)
+        # time_to_goal = distance / max_speed + max_speed / (2 * acceleration)
+        if distance == 0.0:
+            time_to_goal = 0.0
+        else:
+            time_to_goal = distance / max_speed + max_speed / (2 * acceleration)
+
+        # Print variables for debugging
+        # Distance
+        rospy.loginfo("Distance to goal: %s", distance)
+        # Max speed
+        rospy.loginfo("Max speed: %s", max_speed)
+        # Acceleration
+        rospy.loginfo("Acceleration: %s", acceleration)
 
         rospy.loginfo("Distance to goal: %s", distance)
         rospy.loginfo("Robot will reach the goal in %s seconds", time_to_goal)
@@ -126,7 +138,7 @@ class MoveBaseAbstractActionServer(object):
             robot_pose_update = goal_pose
             start_pose = robot_pose_update
 
-        # Calculate start pose orientation as the angle between the robot's current position and the goal, with the y-axis as the reference
+        # Calculate start pose orientation as the angle between the robot's current position and the goal
         start_pose.orientation = Quaternion(*quaternion_from_euler(0, 0, atan2(goal_pose.position.y - start_pose.position.y, goal_pose.position.x - start_pose.position.x)))
         start_pose_oreintation_euler = euler_from_quaternion([start_pose.orientation.x, start_pose.orientation.y, start_pose.orientation.z, start_pose.orientation.w])
 
@@ -148,7 +160,7 @@ class MoveBaseAbstractActionServer(object):
                     self._as.set_preempted()
                     rospy.loginfo("Goal cancelled")
                     return
-                if self.pose_update_freq == 0.0:
+                if self.pose_update_freq <= 0.0:
                     rospy.sleep(1)
                     time_taken_to_goal += 1
                 else:
@@ -163,10 +175,14 @@ class MoveBaseAbstractActionServer(object):
                 # Calculate the distance travelled at time_taken_to_goal
                 # d = tv - v^2/(2a)
                 distance_travelled = (time_taken_to_goal* max_speed) - (max_speed**2 / (2 * acceleration))
+                # rospy.loginfo(self.robot_name + ": Distance travelled: %s", distance_travelled)
 
                 robot_pose_update = Pose()
-                robot_pose_update.position.x = start_pose.position.x + distance_travelled * cos(start_pose_oreintation_euler[2])
-                robot_pose_update.position.y = start_pose.position.y + distance_travelled * sin(start_pose_oreintation_euler[2])
+                robot_pose_update.position.x = start_pose.position.x
+                robot_pose_update.position.y = start_pose.position.y
+                if distance_travelled > 0.0:
+                    robot_pose_update.position.x += distance_travelled * cos(start_pose_oreintation_euler[2])
+                    robot_pose_update.position.y += distance_travelled * sin(start_pose_oreintation_euler[2])
                 robot_pose_update.orientation = start_pose.orientation
 
             # Publish the robot's position update in the simulator
@@ -182,7 +198,7 @@ class MoveBaseAbstractActionServer(object):
                 goal_pose = Pose()
                 goal_pose.position.x = offset_pose.position.x
                 goal_pose.position.y = offset_pose.position.y
-                goal_pose.orientation.w = 1.0
+                goal_pose.orientation = start_pose.orientation
 
                 pose_pub.publish(goal_pose)
                 # rospy.loginfo("Robot pose updated in Stage")

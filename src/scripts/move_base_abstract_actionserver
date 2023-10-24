@@ -225,7 +225,7 @@ class MoveBaseAbstractActionServer(object):
                 robot_pose_update_stamped.header.stamp = rospy.Time.now()
                 robot_pose_update_stamped.header.frame_id = "map"
                 robot_pose_update_stamped.pose = robot_pose_update
-                rviz_pose_pub.publish(robot_pose_update)
+                rviz_pose_pub.publish(robot_pose_update_stamped)
                 # rospy.loginfo("Robot pose updated in RViz")
 
 

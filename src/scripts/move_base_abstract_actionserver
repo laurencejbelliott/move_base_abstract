@@ -5,13 +5,13 @@ from math import sqrt, atan2, cos, sin
 import rospy
 import actionlib
 import tf
-import numpy as np
 from move_base_msgs.msg import MoveBaseAction, MoveBaseActionFeedback,\
     MoveBaseActionResult
 from geometry_msgs.msg import Pose, PoseStamped, PoseWithCovarianceStamped, Quaternion
 from tf.transformations import quaternion_from_euler, euler_from_quaternion
 
-if len(argv) > 2 and (argv[2] == "stage_ros" or argv[2] == "gazebo"):
+
+if len(argv) > 2 and (argv[2] == "stage_ros" or argv[2] == "gazebo" or argv[2] == "virtual_robots"):
     simulator = argv[2]
 else:
     simulator = "stage_ros"  # 'gazebo', 'stage_ros'
@@ -44,13 +44,16 @@ elif simulator == "stage_ros":
     pose_pub = rospy.Publisher(namespace+'cmd_pose', Pose, queue_size=1)
 elif simulator == "virtual_robots":
     tf_broadcaster = tf.TransformBroadcaster()
-    rviz_pose_pub = rospy.Publisher(namespace+'robot_pose', Pose, queue_size=1)  # Topic for RViz to display goal pose
+    rviz_pose_pub = rospy.Publisher(namespace+'robot_pose', PoseStamped, queue_size=1)  # Topic for RViz to display goal pose
 ground_truth_pose = Pose()
 
 
 def ground_truth_pose_cb(msg):
     global ground_truth_pose
-    ground_truth_pose = msg.pose.pose
+    if simulator == "gazebo" or simulator == "stage_ros":
+        ground_truth_pose = msg.pose.pose
+    elif simulator == "virtual_robots":
+        ground_truth_pose = msg
 
 
 class MoveBaseAbstractActionServer(object):
@@ -100,6 +103,7 @@ class MoveBaseAbstractActionServer(object):
 
     def goal_pose_cb(self, msg):
         goal_pose = msg
+
         if simulator == "gazebo":
             model_state = ModelState()
             model_state.model_name = namespace.strip("/")
@@ -210,11 +214,23 @@ class MoveBaseAbstractActionServer(object):
 
                 pose_pub.publish(goal_pose)
                 # rospy.loginfo("Robot pose updated in Stage")
+            elif simulator == "virtual_robots":
+                # Broadcast the pose update as a transform between the robot base_link and the map
+                translation = (robot_pose_update.position.x, robot_pose_update.position.y, robot_pose_update.position.z)
+                rotation = (robot_pose_update.orientation.x, robot_pose_update.orientation.y, robot_pose_update.orientation.z, robot_pose_update.orientation.w)
+                tf_broadcaster.sendTransform(translation, rotation, rospy.Time.now(), namespace + "base_link", "map")
+
+                # Publish goal pose to RViz
+                robot_pose_update_stamped = PoseStamped()
+                robot_pose_update_stamped.header.stamp = rospy.Time.now()
+                robot_pose_update_stamped.header.frame_id = "map"
+                robot_pose_update_stamped.pose = robot_pose_update
+                rviz_pose_pub.publish(robot_pose_update)
+                # rospy.loginfo("Robot pose updated in RViz")
 
 
         if simulator == "gazebo":
             pose_pub.publish(model_state)
-
         elif simulator == "stage_ros":
             offset_goal = copy.deepcopy(msg)
             offset_goal.position.x = offset_goal.position.x - 162.0
@@ -226,24 +242,19 @@ class MoveBaseAbstractActionServer(object):
             goal_pose.orientation.w = 1.0
 
             pose_pub.publish(goal_pose)
+        elif simulator == "virtual_robots":
+            # Broadcast the goal pose as a transform between the robot base_link and the map
+            translation = (goal_pose.position.x, goal_pose.position.y, goal_pose.position.z)
+            rotation = (goal_pose.orientation.x, goal_pose.orientation.y, goal_pose.orientation.z, goal_pose.orientation.w)
+            tf_broadcaster.sendTransform(translation, rotation, rospy.Time.now(), namespace + "base_link", "map")
 
-        rospy.loginfo("Goal pose published to " + simulator)
-
-
-        if simulator == "gazebo":
-            pose_pub.publish(model_state)
-
-        elif simulator == "stage_ros":
-            offset_goal = copy.deepcopy(msg)
-            offset_goal.position.x = offset_goal.position.x - 162.0
-            offset_goal.position.y = offset_goal.position.y - 110.0
-
-            goal_pose = Pose()
-            goal_pose.position.x = offset_goal.position.x
-            goal_pose.position.y = offset_goal.position.y
-            goal_pose.orientation.w = 1.0
-
-            pose_pub.publish(goal_pose)
+            # Publish goal pose to RViz
+            robot_pose_update_stamped = PoseStamped()
+            robot_pose_update_stamped.header.stamp = rospy.Time.now()
+            robot_pose_update_stamped.header.frame_id = "map"
+            robot_pose_update_stamped.pose = goal_pose
+            
+            rviz_pose_pub.publish(robot_pose_update_stamped)
 
         rospy.loginfo("Goal pose published to " + simulator)
 

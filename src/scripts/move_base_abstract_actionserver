@@ -55,6 +55,22 @@ def ground_truth_pose_cb(msg):
     elif simulator == "virtual_robots":
         ground_truth_pose = msg
 
+def set_pose_cb(msg):
+    if simulator == "virtual_robots":
+        # Broadcast the goal pose as a transform between the robot base_link and the map
+        translation = (msg.position.x, msg.position.y, msg.position.z)
+        rotation = (msg.orientation.x, msg.orientation.y, msg.orientation.z, msg.orientation.w)
+        tf_broadcaster.sendTransform(translation, rotation, rospy.Time.now(), namespace + "base_link", "map")
+
+        # Publish goal pose to RViz
+        robot_pose_update_stamped = PoseStamped()
+        robot_pose_update_stamped.header.stamp = rospy.Time.now()
+        robot_pose_update_stamped.header.frame_id = "map"
+        robot_pose_update_stamped.pose = msg
+        
+        rviz_pose_pub.publish(robot_pose_update_stamped)
+        rospy.loginfo("Robot pose updated in RViz")
+
 
 class MoveBaseAbstractActionServer(object):
     _feedback = MoveBaseActionFeedback()
@@ -272,8 +288,12 @@ def move_base_simple_goal_cb(msg):
 if __name__ == '__main__':
     # rospy.Subscriber(namespace+'move_base/goal', MoveBaseActionGoal, move_base_goal_cb)
     rospy.Subscriber(namespace+'move_base_simple/goal', PoseStamped, move_base_simple_goal_cb)
+
     if simulator == "virtual_robots":
         rospy.Subscriber(namespace+'robot_pose', Pose, ground_truth_pose_cb)
+        # Subscriber for directly setting the robot pose without navigation
+        rospy.Subscriber(namespace+'set_pose', Pose, set_pose_cb)
+
     else:
         rospy.Subscriber(namespace+'amcl_pose', PoseWithCovarianceStamped, ground_truth_pose_cb)
     rospy.init_node('move_base_abstract_actionserver')

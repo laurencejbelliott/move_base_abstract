@@ -10,99 +10,83 @@ from move_base_msgs.msg import MoveBaseAction, MoveBaseActionFeedback,\
 from geometry_msgs.msg import Pose, PoseStamped, PoseWithCovarianceStamped, Quaternion
 from tf.transformations import quaternion_from_euler, euler_from_quaternion
 
-
-if len(argv) > 2 and (argv[2] == "stage_ros" or argv[2] == "gazebo" or argv[2] == "virtual_robots"):
-    simulator = argv[2]
-else:
-    simulator = "stage_ros"  # 'gazebo', 'stage_ros'
-
-if simulator == "gazebo":
-    from gazebo_msgs.msg import ModelState
-
-if len(argv) > 3:
-    max_speed = float(argv[3])  # m/s
-else:
-    max_speed = 0.5  # m/s
-
-if len(argv) > 6:
-    pose_update_freq = float(argv[6]) # Hz
-else:
-    pose_update_freq = 0.5 # Hz    
-
-if len(argv) > 7:
-    acceleration = float(argv[7]) # m/s^2
-else:
-    acceleration = 0.0 # Constant velocity = max_speed
-
-rospy.loginfo("Args received: " + str(argv))
-
-namespace = rospy.get_namespace()
-
-if simulator == "gazebo":
-    pose_pub = rospy.Publisher('/gazebo/set_model_state', ModelState, queue_size=1)
-elif simulator == "stage_ros":
-    pose_pub = rospy.Publisher(namespace+'cmd_pose', Pose, queue_size=1)
-elif simulator == "virtual_robots":
-    tf_broadcaster = tf.TransformBroadcaster()
-    rviz_pose_pub = rospy.Publisher(namespace+'robot_pose', PoseStamped, queue_size=1)  # Topic for RViz to display goal pose
-ground_truth_pose = Pose()
-
-
-def ground_truth_pose_cb(msg):
-    global ground_truth_pose
-    if simulator == "gazebo" or simulator == "stage_ros":
-        ground_truth_pose = msg.pose.pose
-    elif simulator == "virtual_robots":
-        ground_truth_pose = msg
-
-def set_pose_cb(msg):
-    if simulator == "virtual_robots":
-        # Broadcast the goal pose as a transform between the robot base_link and the map
-        translation = (msg.position.x, msg.position.y, msg.position.z)
-        rotation = (msg.orientation.x, msg.orientation.y, msg.orientation.z, msg.orientation.w)
-        tf_broadcaster.sendTransform(translation, rotation, rospy.Time.now(), namespace + "base_link", "map")
-
-        # Publish goal pose to RViz
-        robot_pose_update_stamped = PoseStamped()
-        robot_pose_update_stamped.header.stamp = rospy.Time.now()
-        robot_pose_update_stamped.header.frame_id = "map"
-        robot_pose_update_stamped.pose = msg
-        
-        rviz_pose_pub.publish(robot_pose_update_stamped)
-        rospy.loginfo("Robot pose updated in RViz")
-
-
 class MoveBaseAbstractActionServer(object):
     _feedback = MoveBaseActionFeedback()
     _result = MoveBaseActionResult()
 
-    def __init__(self):
-        self.simulator = simulator
+    def __init__(self, robot_name, robot_start_pos_x, robot_start_pos_y, 
+                 max_speed, acceleration,
+                 simulator, pose_update_freq):
+        self.robot_name = robot_name
+        self.robot_start_pos_x = robot_start_pos_x
+        self.robot_start_pos_y = robot_start_pos_y
+        
         self.max_speed = max_speed
-        self.pose_update_freq = pose_update_freq
         self.acceleration = acceleration
 
+        self.simulator = simulator
+        self.pose_update_freq = pose_update_freq
+        
+        self.namespace = rospy.get_namespace()
+        
         if self.pose_update_freq > 0.0:
             self.pose_update_interval = 1.0 / self.pose_update_freq
         else:
             self.pose_update_interval = 0.0
+        
+        self.ground_truth_pose = Pose()
+        self.ground_truth_pose.position.x = self.robot_start_pos_x
+        self.ground_truth_pose.position.y = self.robot_start_pos_y
+        self.ground_truth_pose.orientation.w = 1
 
-        if len(argv) > 1 and "node" not in argv[1]:
-            self.robot_name = argv[1]
-        else:
-            self.robot_name = rospy.get_namespace().strip("/")
-        if len(argv) > 4:
-            self.robot_start_pos_x = float(argv[4])
-        else:
-            self.robot_start_pos_x = 0.0
-        if len(argv) > 5:
-            self.robot_start_pos_y = float(argv[5])
-        else:
-            self.robot_start_pos_y = 0.0
 
+        if self.simulator == "gazebo":
+            self.pose_pub = rospy.Publisher('/gazebo/set_model_state', ModelState, queue_size=5)
+        elif self.simulator == "stage_ros":
+            self.pose_pub = rospy.Publisher(self.namespace+'cmd_pose', Pose, queue_size=5)
+        elif self.simulator == "virtual_robots":
+            self.tf_broadcaster = tf.TransformBroadcaster()
+            self.rviz_pose_pub = rospy.Publisher(self.namespace+'robot_pose', PoseStamped, queue_size=5)  # Topic for RViz to display goal pose
+
+        if self.simulator == "virtual_robots":
+            rospy.Subscriber(self.namespace+'robot_pose', PoseStamped, self.ground_truth_pose_cb)
+            # Subscriber for directly setting the robot pose without navigation
+            rospy.Subscriber(self.namespace+'set_pose', Pose, self.set_pose_cb)
+    
+        else:
+            rospy.Subscriber(self.namespace+'amcl_pose', PoseWithCovarianceStamped, self.ground_truth_pose_cb)
+        
+        # rospy.Subscriber(self.namespace+'move_base/goal', MoveBaseActionGoal, move_base_goal_cb)
+        rospy.Subscriber(self.namespace+'move_base_simple/goal', PoseStamped, self.move_base_simple_goal_cb)
+        
         self._as = actionlib.SimpleActionServer("move_base", MoveBaseAction, self.execute_cb, False)
         self._as.start()
 
+        
+    def ground_truth_pose_cb(self, msg):
+        if self.simulator == "gazebo" or self.simulator == "stage_ros":
+            self.ground_truth_pose = msg.pose.pose
+        elif simulator == "virtual_robots":
+            self.ground_truth_pose = msg.pose
+        #rospy.loginfo("setting ground truth pose as; %s", msg)
+    
+    def set_pose_cb(self, msg):
+        if simulator == "virtual_robots":
+            # Broadcast the goal pose as a transform between the robot base_link and the map
+            translation = (msg.position.x, msg.position.y, msg.position.z)
+            rotation = (msg.orientation.x, msg.orientation.y, msg.orientation.z, msg.orientation.w)
+            self.tf_broadcaster.sendTransform(translation, rotation, rospy.Time.now(), self.namespace + "base_link", "map")
+    
+            # Publish goal pose to RViz
+            robot_pose_update_stamped = PoseStamped()
+            robot_pose_update_stamped.header.stamp = rospy.Time.now()
+            robot_pose_update_stamped.header.frame_id = "map"
+            robot_pose_update_stamped.pose = msg
+            
+            self.rviz_pose_pub.publish(robot_pose_update_stamped)
+            #rospy.sleep(0.1)
+            rospy.loginfo("Robot pose updated in RViz")
+            
     def execute_cb(self, goal):
         rospy.loginfo("Received goal: {}".format(goal))
         self.goal_pose_cb(goal.target_pose.pose)
@@ -116,20 +100,19 @@ class MoveBaseAbstractActionServer(object):
         # self._result.result.base_position = ground_truth_pose
         self._as.set_succeeded(self._result)
 
-
     def goal_pose_cb(self, msg):
         goal_pose = msg
 
         if simulator == "gazebo":
             model_state = ModelState()
-            model_state.model_name = namespace.strip("/")
+            model_state.model_name = self.namespace.strip("/")
             model_state.pose = goal_pose
             rospy.loginfo("Model state pose msg type: {}".format(type(model_state.pose)))
         rospy.loginfo("Goal pose received: %s", goal_pose)
 
         # Calculate the distance to the goal
-        distance = sqrt(((goal_pose.position.x - ground_truth_pose.position.x)**2) +
-                        ((goal_pose.position.y - ground_truth_pose.position.y)**2))
+        distance = sqrt(((goal_pose.position.x - self.ground_truth_pose.position.x)**2) +
+                        ((goal_pose.position.y - self.ground_truth_pose.position.y)**2))
         
         # time_to_goal = distance / max_speed # Without acceleration and initial velocity of 0
 
@@ -145,6 +128,7 @@ class MoveBaseAbstractActionServer(object):
                 time_to_goal = distance / max_speed + max_speed / (2 * acceleration)
 
         # Print variables for debugging
+        rospy.loginfo("robot_pose: %s", self.ground_truth_pose)
         # Distance
         rospy.loginfo("Distance to goal: %s", distance)
         # Max speed
@@ -158,7 +142,7 @@ class MoveBaseAbstractActionServer(object):
         time_remaining_to_goal = time_to_goal
 
         if self.pose_update_freq > 0.0:
-            start_pose = copy.deepcopy(ground_truth_pose)
+            start_pose = copy.deepcopy(self.ground_truth_pose)
         else:
             robot_pose_update = goal_pose
             start_pose = robot_pose_update
@@ -216,7 +200,7 @@ class MoveBaseAbstractActionServer(object):
             # Publish the robot's position update in the simulator
             if simulator == "gazebo":
                 model_state.pose = robot_pose_update
-                pose_pub.publish(model_state)
+                self.pose_pub.publish(model_state)
                 # rospy.loginfo("Robot pose updated in Gazebo")
             elif simulator == "stage_ros":
                 offset_pose = copy.deepcopy(robot_pose_update)
@@ -228,25 +212,25 @@ class MoveBaseAbstractActionServer(object):
                 goal_pose.position.y = offset_pose.position.y
                 goal_pose.orientation = start_pose.orientation
 
-                pose_pub.publish(goal_pose)
+                self.pose_pub.publish(goal_pose)
                 # rospy.loginfo("Robot pose updated in Stage")
             elif simulator == "virtual_robots":
                 # Broadcast the pose update as a transform between the robot base_link and the map
                 translation = (robot_pose_update.position.x, robot_pose_update.position.y, robot_pose_update.position.z)
                 rotation = (robot_pose_update.orientation.x, robot_pose_update.orientation.y, robot_pose_update.orientation.z, robot_pose_update.orientation.w)
-                tf_broadcaster.sendTransform(translation, rotation, rospy.Time.now(), namespace + "base_link", "map")
+                self.tf_broadcaster.sendTransform(translation, rotation, rospy.Time.now(), self.namespace + "base_link", "map")
 
                 # Publish goal pose to RViz
                 robot_pose_update_stamped = PoseStamped()
                 robot_pose_update_stamped.header.stamp = rospy.Time.now()
                 robot_pose_update_stamped.header.frame_id = "map"
                 robot_pose_update_stamped.pose = robot_pose_update
-                rviz_pose_pub.publish(robot_pose_update_stamped)
+                self.rviz_pose_pub.publish(robot_pose_update_stamped)
                 # rospy.loginfo("Robot pose updated in RViz")
 
 
         if simulator == "gazebo":
-            pose_pub.publish(model_state)
+            self.pose_pub.publish(model_state)
         elif simulator == "stage_ros":
             offset_goal = copy.deepcopy(msg)
             offset_goal.position.x = offset_goal.position.x - 162.0
@@ -257,12 +241,12 @@ class MoveBaseAbstractActionServer(object):
             goal_pose.position.y = offset_goal.position.y
             goal_pose.orientation.w = 1.0
 
-            pose_pub.publish(goal_pose)
+            self.pose_pub.publish(goal_pose)
         elif simulator == "virtual_robots":
             # Broadcast the goal pose as a transform between the robot base_link and the map
             translation = (goal_pose.position.x, goal_pose.position.y, goal_pose.position.z)
             rotation = (goal_pose.orientation.x, goal_pose.orientation.y, goal_pose.orientation.z, goal_pose.orientation.w)
-            tf_broadcaster.sendTransform(translation, rotation, rospy.Time.now(), namespace + "base_link", "map")
+            self.tf_broadcaster.sendTransform(translation, rotation, rospy.Time.now(), self.namespace + "base_link", "map")
 
             # Publish goal pose to RViz
             robot_pose_update_stamped = PoseStamped()
@@ -270,7 +254,7 @@ class MoveBaseAbstractActionServer(object):
             robot_pose_update_stamped.header.frame_id = "map"
             robot_pose_update_stamped.pose = goal_pose
             
-            rviz_pose_pub.publish(robot_pose_update_stamped)
+            self.rviz_pose_pub.publish(robot_pose_update_stamped)
 
         rospy.loginfo("Goal pose published to " + simulator)
 
@@ -279,25 +263,60 @@ class MoveBaseAbstractActionServer(object):
         goal_pose = msg.goal.target_pose.pose
         self.goal_pose_cb(goal_pose)
 
-
-def move_base_simple_goal_cb(msg):
-    goal_pose = msg.pose
-    server.goal_pose_cb(goal_pose)
+    def move_base_simple_goal_cb(self, msg):
+        goal_pose = msg.pose
+        self.goal_pose_cb(goal_pose)
 
 
 if __name__ == '__main__':
-    # rospy.Subscriber(namespace+'move_base/goal', MoveBaseActionGoal, move_base_goal_cb)
-    rospy.Subscriber(namespace+'move_base_simple/goal', PoseStamped, move_base_simple_goal_cb)
-
-    if simulator == "virtual_robots":
-        rospy.Subscriber(namespace+'robot_pose', Pose, ground_truth_pose_cb)
-        # Subscriber for directly setting the robot pose without navigation
-        rospy.Subscriber(namespace+'set_pose', Pose, set_pose_cb)
-
-    else:
-        rospy.Subscriber(namespace+'amcl_pose', PoseWithCovarianceStamped, ground_truth_pose_cb)
+    
     rospy.init_node('move_base_abstract_actionserver')
-    server = MoveBaseAbstractActionServer()
+    
+    # args: robot_name, simulator, max_speed, robot_start_pos_x, robot_start_pos_y, pose_update_freq, acceleration
+    if len(argv) > 1 and "node" not in argv[1]:
+        robot_name = argv[1]
+    else:
+        robot_name = rospy.get_namespace().strip("/")
+
+    if len(argv) > 2 and (argv[2] == "stage_ros" or argv[2] == "gazebo" or argv[2] == "virtual_robots"):
+        simulator = argv[2]
+    else:
+        simulator = "stage_ros"  # 'gazebo', 'stage_ros'
+    
+    if simulator == "gazebo":
+        from gazebo_msgs.msg import ModelState
+
+    if len(argv) > 3:
+        max_speed = float(argv[3])  # m/s
+    else:
+        max_speed = 0.5  # m/s
+        
+    if len(argv) > 4:
+        robot_start_pos_x = float(argv[4])
+    else:
+        robot_start_pos_x = 0.0
+        
+    if len(argv) > 5:
+        robot_start_pos_y = float(argv[5])
+    else:
+        robot_start_pos_y = 0.0
+    
+    if len(argv) > 6:
+        pose_update_freq = float(argv[6]) # Hz
+    else:
+        pose_update_freq = 0.5 # Hz    
+    
+    if len(argv) > 7:
+        acceleration = float(argv[7]) # m/s^2
+    else:
+        acceleration = 0.0 # Constant velocity = max_speed
+        
+    rospy.loginfo("Args received: " + str(argv))
+
+    
+    server = MoveBaseAbstractActionServer(robot_name, robot_start_pos_x, robot_start_pos_y, 
+                                             max_speed, acceleration,
+                                             simulator, pose_update_freq)
     
     rospy.loginfo("Started move_base_abstract_actionserver node with args:\n"\
                   "Robot name: {}\n" \

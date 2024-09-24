@@ -1,10 +1,11 @@
 # move_base_abstract
 
 A ROS package that is designed to serve as a drop-in replacement for move_base, to provide abstracted navigation for faster, if less realistic, ROS simulation.
+See our extended abstract, 'Towards an Abstract Lightweight Multi-robot ROS Simulator for Rapid Experimentation', published in the [proceedings of the TAROS '24 conference](https://taros-conference.org/wp-content/uploads/2023/09/taros2023_all_abstracts.pdf) for more detail.
 
 This package works with Gazebo or stage_ros as the simulator, and tells the simulator to set the pose of a robot to a given goal pose after a delay in ROS time equal to a constant average robot speed (m/s) multiplied by the distance (m) between the robot's current pose and its goal pose.
 
-There is a minimalist bespoke simulator provided in the `rasberry` branch of move_base_abstract, offering reduced computational overhead even when compared to stage_ros. It should be noted, however, that its current implementation is experimental and closely tied to software used on the Robot Highways project, funded by Innovate UK. Work to make it more usable for general applications, and documentation, is ongoing. 
+There is a minimalist bespoke simulator provided in the `rasberry` branch of move_base_abstract, offering reduced computational overhead even when compared to stage_ros. 
 
 ## Setup
 
